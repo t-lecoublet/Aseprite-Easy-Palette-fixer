@@ -17,7 +17,8 @@ It's a Lua port of [Sprite Fusion Palette Snapper](https://github.com/Hugo-Dz/sp
 - **Target**: the active sprite, the selected cels, all open sprites (one undo step per sprite), or every image in a
   folder (output beside it as `name_snapped`, in a `snapped/` subfolder, or replacing the originals).
 - **Before / after preview**: the current frame (or the active cel, or the chosen image of the folder) before and
-  after, with color counts and the result's colors. Updated after each setting change, frame change or edit.
+  after, with color counts and the result's colors. Updated after each setting change, frame change or edit. The
+  mouse wheel zooms (both sides together), dragging moves, double-click fits again.
 
 RGB and Indexed sprites are recolored in place; Grayscale sprites are converted to RGB. Locked, tilemap and reference
 layers are skipped. The first time it touches the disk (a palette, a folder), Aseprite asks permission for the

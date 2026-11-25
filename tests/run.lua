@@ -60,7 +60,7 @@ local function fails(fn, fragment)
 end
 
 local t = { use = use, test = test, eq = eq, fails = fails, show = show, tmp = app.params.tmp }
-for _, file in ipairs({ "test_snapper.lua", "test_aseprite.lua", "test_dialog.lua", "test_preview.lua" }) do
+for _, file in ipairs({ "test_snapper.lua", "test_aseprite.lua", "test_dialog.lua", "test_preview.lua", "test_draw.lua" }) do
   assert(loadfile(app.fs.joinPath(testsDir, file)))(t)
 end
 print(("RESULT %d tests, %d failures"):format(count, failures))

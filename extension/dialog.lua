@@ -350,6 +350,9 @@ function M.show(saved)
   local source -- cached preview source, nil when it must be read again
   local strip = { message = "" } -- the target palette, for the strip canvas
   local shownPreview = { message = "" } -- what the preview canvas draws
+  local view = draw.FIT -- the preview's zoom and position, shared by both panels
+  local panels = {} -- the panels' rects and image sizes, from the last paint
+  local drag -- set while the preview is being dragged
   local siteListener, watched, watchListener
 
   local function read()
@@ -598,16 +601,61 @@ function M.show(saved)
     local top = PAD + line + 4
     local panelH = h - top - PAD - (line + 3 + stripH + PAD)
 
+    local beforeRect = Rectangle(PAD, top, panelW, panelH)
+    local afterRect = Rectangle(2 * PAD + panelW, top, panelW, panelH)
+    local zoom = view.zoom > 1 and (" · x%d"):format(view.zoom) or ""
     gc.color = draw.theme("text")
-    gc:fillText(draw.ellipsize(gc, ("Before · %s · %s"):format(plural(p.beforeCount, "color"), p.what), panelW), PAD, PAD)
+    gc:fillText(draw.ellipsize(gc, ("Before · %s · %s%s"):format(plural(p.beforeCount, "color"), p.what, zoom), panelW), PAD, PAD)
     gc:fillText(draw.ellipsize(gc, "After · " .. plural(p.afterCount, "color"), panelW), 2 * PAD + panelW, PAD)
-    draw.image(gc, p.before, Rectangle(PAD, top, panelW, panelH))
-    draw.image(gc, p.after, Rectangle(2 * PAD + panelW, top, panelW, panelH))
+    draw.image(gc, p.before, beforeRect, view)
+    draw.image(gc, p.after, afterRect, view)
+    panels = {
+      { rect = beforeRect, w = p.before.width, h = p.before.height },
+      { rect = afterRect, w = p.after.width, h = p.after.height },
+    }
 
     local y = top + panelH + PAD
     gc.color = draw.theme("text")
     gc:fillText("Result colors", PAD, y)
     paintStrip(gc, p.targets, PAD, y + line + 3, inner)
+  end
+
+  -- Wheel: zoom under the mouse. Drag: move. Double-click: fit again.
+  local function panelAt(x, y)
+    for _, panel in ipairs(panels) do
+      local r = panel.rect
+      if x >= r.x and x < r.x + r.width and y >= r.y and y < r.y + r.height then
+        return panel
+      end
+    end
+  end
+
+  local function zoomPreview(ev)
+    local panel = panelAt(ev.x, ev.y) or panels[1]
+    if panel and ev.deltaY and ev.deltaY ~= 0 then
+      view = draw.zoomAt(view, panel.w, panel.h, panel.rect, ev.x, ev.y, ev.deltaY < 0 and 2 or 0.5)
+      dlg:repaint()
+    end
+  end
+
+  local function startDrag(ev)
+    local panel = panelAt(ev.x, ev.y)
+    if panel then
+      drag = { x = ev.x, y = ev.y, view = view, panel = panel }
+    end
+  end
+
+  local function dragPreview(ev)
+    if not drag then
+      return
+    end
+    if ev.button == MouseButton.NONE then -- released outside the preview
+      drag = nil
+      return
+    end
+    local panel = drag.panel
+    view = draw.pan(drag.view, panel.w, panel.h, panel.rect, ev.x - drag.x, ev.y - drag.y)
+    dlg:repaint()
   end
 
   dlg = Dialog {
@@ -684,9 +732,20 @@ function M.show(saved)
     option = labelOf("output", settings.output), options = labels("output"),
   }
 
-  dlg:separator { text = "Preview" }
+  dlg:separator { text = "Preview (wheel: zoom, drag: move, double-click: fit)" }
   dlg:check { id = "live", text = "Before / after preview", selected = settings.live, onclick = changed }
-  dlg:canvas { id = "preview", width = 400, height = 300, onpaint = paintPreview }
+  dlg:canvas {
+    id = "preview", width = 400, height = 300,
+    onpaint = paintPreview,
+    onwheel = zoomPreview,
+    onmousedown = startDrag,
+    onmousemove = dragPreview,
+    onmouseup = function() drag = nil end,
+    ondblclick = function()
+      view = draw.FIT
+      dlg:repaint()
+    end,
+  }
 
   dlg:separator()
   dlg:label { id = "status", text = "" }

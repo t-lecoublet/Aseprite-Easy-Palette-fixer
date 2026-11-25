@@ -66,21 +66,94 @@ function M.checker(gc, rect, size)
   end
 end
 
--- Where an image of w*h lands in `rect`: whole-number zoom when it fits
--- (crisp pixels), otherwise shrunk to fit; centered.
-function M.fit(w, h, rect)
+-- Zoom and pan. A view is { zoom, cx, cy }: zoom 1 fits the image in its
+-- panel; cx, cy is the image point shown at the panel's center, as fractions
+-- of the image size, so panels of different resolutions show the same area.
+M.FIT = { zoom = 1, cx = 0.5, cy = 0.5 }
+M.MAX_ZOOM = 64
+
+local function fitScale(w, h, rect)
   local scale = math.min(rect.width / w, rect.height / h)
   if scale >= 1 then
     scale = math.floor(scale)
   end
-  local dw, dh = math.max(1, math.floor(w * scale)), math.max(1, math.floor(h * scale))
-  return Rectangle(rect.x + (rect.width - dw) // 2, rect.y + (rect.height - dh) // 2, dw, dh)
+  return scale
 end
 
-function M.image(gc, image, rect)
-  local target = M.fit(image.width, image.height, rect)
-  M.checker(gc, target)
-  gc:drawImage(image, Rectangle(0, 0, image.width, image.height), target)
+-- Where a w x h image lands in `rect` for `view`: { scale, x, y } (the
+-- screen position of its top-left corner), and the view's center clamped so
+-- the image never leaves empty space on a side it could cover.
+function M.transform(w, h, rect, view)
+  local scale = fitScale(w, h, rect) * view.zoom
+  if scale >= 1 then
+    scale = math.floor(scale + 1e-6) -- whole numbers keep pixels crisp
+  end
+  local function center(fraction, size, room)
+    if size * scale <= room then
+      return size / 2
+    end
+    local half = room / 2 / scale
+    return math.min(math.max(fraction * size, half), size - half)
+  end
+  local cx, cy = center(view.cx, w, rect.width), center(view.cy, h, rect.height)
+  return {
+    scale = scale,
+    x = rect.x + rect.width / 2 - cx * scale,
+    y = rect.y + rect.height / 2 - cy * scale,
+    cx = cx / w,
+    cy = cy / h,
+  }
+end
+
+-- The view zoomed by `factor`, keeping the image point under (mx, my) still.
+function M.zoomAt(view, w, h, rect, mx, my, factor)
+  local t = M.transform(w, h, rect, view)
+  local u, v = (mx - t.x) / t.scale / w, (my - t.y) / t.scale / h
+  local zoom = math.min(math.max(view.zoom * factor, 1), M.MAX_ZOOM)
+  local s = M.transform(w, h, rect, { zoom = zoom, cx = 0.5, cy = 0.5 }).scale
+  local moved = {
+    zoom = zoom,
+    cx = u - (mx - (rect.x + rect.width / 2)) / (w * s),
+    cy = v - (my - (rect.y + rect.height / 2)) / (h * s),
+  }
+  local clamped = M.transform(w, h, rect, moved)
+  moved.cx, moved.cy = clamped.cx, clamped.cy
+  return moved
+end
+
+-- `start` moved by (dx, dy) screen pixels, as when dragging.
+function M.pan(start, w, h, rect, dx, dy)
+  local t = M.transform(w, h, rect, start)
+  local moved = { zoom = start.zoom, cx = t.cx - dx / (t.scale * w), cy = t.cy - dy / (t.scale * h) }
+  local clamped = M.transform(w, h, rect, moved)
+  moved.cx, moved.cy = clamped.cx, clamped.cy
+  return moved
+end
+
+-- Draws `image` in `rect` (clipped to it) for `view`, over a checkerboard.
+-- Returns the transform, to draw overlays at image coordinates.
+function M.image(gc, image, rect, view)
+  local w, h = image.width, image.height
+  local t = M.transform(w, h, rect, view or M.FIT)
+  local x0 = math.max(0, math.floor((rect.x - t.x) / t.scale))
+  local y0 = math.max(0, math.floor((rect.y - t.y) / t.scale))
+  local x1 = math.min(w, math.ceil((rect.x + rect.width - t.x) / t.scale))
+  local y1 = math.min(h, math.ceil((rect.y + rect.height - t.y) / t.scale))
+  if x1 <= x0 or y1 <= y0 then
+    return t
+  end
+  local left, top = math.floor(t.x + x0 * t.scale + 0.5), math.floor(t.y + y0 * t.scale + 0.5)
+  local dst = Rectangle(left, top,
+    math.max(1, math.floor(t.x + x1 * t.scale + 0.5) - left),
+    math.max(1, math.floor(t.y + y1 * t.scale + 0.5) - top))
+  gc:save()
+  gc:beginPath()
+  gc:rect(rect)
+  gc:clip()
+  M.checker(gc, dst:intersect(rect))
+  gc:drawImage(image, Rectangle(x0, y0, x1 - x0, y1 - y0), dst)
+  gc:restore()
+  return t
 end
 
 -- Text cut with "…" to fit in `width`.

@@ -2,7 +2,7 @@
   "name": "EasyPaletteFixer",
   "displayName": "Easy Palette Fixer",
   "description": "Reduce a sprite's colors or snap it to a palette (a port of Sprite Fusion Palette Snapper), on open sprites or whole folders.",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "author": {
     "name": "shio"
   },
